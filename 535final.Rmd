@@ -1,0 +1,163 @@
+---
+title: "535 final"
+author: "Minghan"
+date: "2023-04-27"
+output: pdf_document
+---
+
+## Minghan Yang, 3831285746
+
+
+```{r}
+library(NLP)
+library(tm)  
+df0 <- read.csv("sms.csv", stringsAsFactors = FALSE)
+str(df0)
+```
+```{r}
+# build a corpus (a collection of messages suitable for text mining)
+sms_corpus <- VCorpus(VectorSource(df0$text))
+# examine it
+as.character(sms_corpus[[1]])
+lapply(sms_corpus[1:2], as.character)
+# change all words to lowercase
+sms_corpus_clean <- tm_map(sms_corpus, content_transformer(tolower))
+as.character(sms_corpus_clean[[1]])
+# remove numbers
+sms_corpus_clean <- tm_map(sms_corpus_clean, removeNumbers)
+# remove stop words
+sms_corpus_clean <- tm_map(sms_corpus_clean, removeWords, stopwords())
+# remove punctuation
+sms_corpus_clean <- tm_map(sms_corpus_clean, removePunctuation)
+# example of word stemming
+library(SnowballC)
+wordStem(c("learn", "learned", "learning", "learns"))
+# replace words by stem words
+sms_corpus_clean <- tm_map(sms_corpus_clean, stemDocument)
+# eliminate unneeded whitespace
+sms_corpus_clean <- tm_map(sms_corpus_clean, stripWhitespace)
+# compare original with the final clean corpus
+lapply(sms_corpus[1:3], as.character)
+lapply(sms_corpus_clean[1:3], as.character)
+```
+
+```{r}
+sms_dtm <- DocumentTermMatrix(sms_corpus_clean)
+ncol(sms_dtm)
+```
+
+```{r}
+sms_dtm <- DocumentTermMatrix(sms_corpus_clean)
+dim(sms_dtm)
+# split into train and test sets
+m = 4169
+sms_dtm_train <- sms_dtm[1:m, ]
+sms_dtm_test  <- sms_dtm[(m+1):5559, ]
+dim(sms_dtm_train)
+sms_train_labels <- df0[1:m, ]$type
+sms_test_labels  <- df0[(m+1):5559, ]$type
+# vector with words appearing at least 5 times
+sms_freq_words <- findFreqTerms(sms_dtm_train, 5)
+# show some of them
+set.seed(2)
+sample(sms_freq_words,12)
+     
+# DTMs with only the frequent terms
+sms_dtm_freq_train <- sms_dtm_train[ , sms_freq_words]
+sms_dtm_freq_test <- sms_dtm_test[ , sms_freq_words]
+# a function that converts 1/0 to Yes/No
+convert_counts = function(x) x = ifelse(x > 0, "Yes", "No")
+# Use convert_counts() to the columns of the train/test sets
+sms_train <- apply(sms_dtm_freq_train, 2, convert_counts)
+sms_test  <- apply(sms_dtm_freq_test, 2, convert_counts)
+dim(sms_test)
+```
+
+
+```{r}
+sms_train = data.frame(sms_train)
+train = cbind(sms_train_labels, sms_train)
+#head(train)
+sms_test = data.frame(sms_test)
+test = cbind(sms_test_labels, sms_test)
+#head(test)
+```
+
+```{r}
+library(e1071)
+model = naiveBayes(sms_train_labels~., data = train)
+probabs = predict(model,test, type = "raw")
+
+yhat = rep('ham',1390)
+yhat[probabs[,2] > 0.5] = 'spam'
+table('test' = test$sms_test_labels, 'prediction' = yhat)
+confusionmat = as.matrix(table(test$sms_test_labels,yhat))
+rowSums(confusionmat)
+```
+```{r}
+TPR = confusionmat[2,2]/rowSums(confusionmat)[2]
+TPR
+FPR = confusionmat[1,2]/rowSums(confusionmat)[1]
+FPR
+```
+
+```{r}
+cutoff = seq(0.001,0.92,0.001)
+n = length(cutoff)
+TPR2 = rep(0,n)
+FPR2 = rep(0,n)
+
+for (i in cutoff)
+{
+  yhat2 = rep('ham',1390)
+  yhat2[probabs[,2] > i] = 'spam'
+  confusionmat2 = as.matrix(table(test$sms_test_labels,yhat2))
+  j = n*i
+  TPR2[j] = confusionmat2[2,2]/rowSums(confusionmat2)[2]
+  FPR2[j] = confusionmat2[1,2]/rowSums(confusionmat2)[1]
+  
+}
+
+df = data.frame(cutoff, TPR2, FPR2)
+head(df,10)
+
+```
+```{r}
+optimal_index = which.max(abs(FPR - FPR2) < 0.002)
+optimal_threshold = cutoff[optimal_index]
+optimal_threshold
+```
+```{r}
+yhat3 = rep('ham',1390)
+yhat3[probabs[,2] > optimal_threshold] = 'spam'
+confusionmat3 = as.matrix(table(test$sms_test_labels,yhat3))
+TPR3 = confusionmat3[2,2]/rowSums(confusionmat3)[2]
+TPR3
+FPR3 = confusionmat3[1,2]/rowSums(confusionmat3)[1]
+FPR3
+```
+
+```{r}
+{message = FALSE} 
+{warning=FALSE}
+library("ggmap")
+library("dplyr")
+library("ggplot2")
+d3 <- read.csv("usmap.csv")
+# ignore counties with small number of cases
+d3 = d3[d3$cases > 22,]
+# cases per 100000 residents
+d3$cases = 100000*d3$cases/d3$population
+```
+
+
+```{r}
+us <- c(left = -125, bottom = 24, right = -67, top = 49)
+p = get_stamenmap(us, zoom = 5, maptype = "toner-lite") %>% ggmap() 
+p + geom_point(data = d3, aes(x=lon , y=lat, size = cases, colour = "red", alpha = 0.5))
+
+```
+
+
+
+
